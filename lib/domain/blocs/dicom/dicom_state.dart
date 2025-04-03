@@ -1,5 +1,8 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/material.dart';
 import '../../../data/models/dicom_file.dart';
+import '../../../presentation/widgets/dicom_viewer/painters.dart';
+import '../../../presentation/widgets/annotation_tools/annotation_manager.dart';
 
 enum DicomStatus { initial, loading, loaded, error }
 
@@ -9,10 +12,25 @@ class DicomState extends Equatable {
   final int currentImageIndex;
   final double brightness;
   final double contrast;
+
+  // 측정 도구 관련 상태
   final bool isMeasurementMode;
+  final MeasurementType measurementType;
+  final Color measurementColor;
+  final List<Map<String, dynamic>> measurements;
+
+  // 주석 도구 관련 상태
   final bool isAnnotationMode;
-  final List<Map<String, double>> measurementPoints;
+  final AnnotationToolType annotationType;
+  final Color annotationColor;
   final List<Map<String, dynamic>> annotations;
+
+  // 이미지 변환 관련 상태
+  final int rotation; // 0, 90, 180, 270
+  final bool flipHorizontal;
+  final bool flipVertical;
+
+  // 오류 메시지
   final String? errorMessage;
 
   const DicomState({
@@ -22,9 +40,16 @@ class DicomState extends Equatable {
     this.brightness = 0.0,
     this.contrast = 1.0,
     this.isMeasurementMode = false,
+    this.measurementType = MeasurementType.distance,
+    this.measurementColor = Colors.yellow,
+    this.measurements = const [],
     this.isAnnotationMode = false,
-    this.measurementPoints = const [],
+    this.annotationType = AnnotationToolType.text,
+    this.annotationColor = Colors.green,
     this.annotations = const [],
+    this.rotation = 0,
+    this.flipHorizontal = false,
+    this.flipVertical = false,
     this.errorMessage,
   });
 
@@ -35,9 +60,16 @@ class DicomState extends Equatable {
     double? brightness,
     double? contrast,
     bool? isMeasurementMode,
+    MeasurementType? measurementType,
+    Color? measurementColor,
+    List<Map<String, dynamic>>? measurements,
     bool? isAnnotationMode,
-    List<Map<String, double>>? measurementPoints,
+    AnnotationToolType? annotationType,
+    Color? annotationColor,
     List<Map<String, dynamic>>? annotations,
+    int? rotation,
+    bool? flipHorizontal,
+    bool? flipVertical,
     String? errorMessage,
   }) {
     return DicomState(
@@ -47,9 +79,16 @@ class DicomState extends Equatable {
       brightness: brightness ?? this.brightness,
       contrast: contrast ?? this.contrast,
       isMeasurementMode: isMeasurementMode ?? this.isMeasurementMode,
+      measurementType: measurementType ?? this.measurementType,
+      measurementColor: measurementColor ?? this.measurementColor,
+      measurements: measurements ?? this.measurements,
       isAnnotationMode: isAnnotationMode ?? this.isAnnotationMode,
-      measurementPoints: measurementPoints ?? this.measurementPoints,
+      annotationType: annotationType ?? this.annotationType,
+      annotationColor: annotationColor ?? this.annotationColor,
       annotations: annotations ?? this.annotations,
+      rotation: rotation ?? this.rotation,
+      flipHorizontal: flipHorizontal ?? this.flipHorizontal,
+      flipVertical: flipVertical ?? this.flipVertical,
       errorMessage: errorMessage ?? this.errorMessage,
     );
   }
@@ -62,9 +101,16 @@ class DicomState extends Equatable {
     brightness,
     contrast,
     isMeasurementMode,
+    measurementType,
+    measurementColor,
+    measurements,
     isAnnotationMode,
-    measurementPoints,
+    annotationType,
+    annotationColor,
     annotations,
+    rotation,
+    flipHorizontal,
+    flipVertical,
     errorMessage,
   ];
 
@@ -79,22 +125,5 @@ class DicomState extends Equatable {
     }
 
     return dicomFile!.images[currentImageIndex];
-  }
-
-  // 측정 거리 계산
-  double calculateDistance() {
-    if (measurementPoints.length != 2) return 0;
-
-    final p1x = measurementPoints[0]['x'] ?? 0;
-    final p1y = measurementPoints[0]['y'] ?? 0;
-    final p2x = measurementPoints[1]['x'] ?? 0;
-    final p2y = measurementPoints[1]['y'] ?? 0;
-
-    return _distance(p1x, p1y, p2x, p2y);
-  }
-
-  // 두 점 사이의 거리 계산
-  double _distance(double x1, double y1, double x2, double y2) {
-    return ((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)) * 0.5;
   }
 }

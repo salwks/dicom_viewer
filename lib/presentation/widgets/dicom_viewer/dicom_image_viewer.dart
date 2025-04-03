@@ -2,6 +2,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../../data/models/dicom_file.dart';
 import '../../../data/services/dicom_service.dart';
+import '../measurement_tools/measurement_manager.dart';
+import '../annotation_tools/annotation_manager.dart';
 import 'painters.dart';
 
 class DicomImageViewer extends StatefulWidget {
@@ -10,6 +12,12 @@ class DicomImageViewer extends StatefulWidget {
   final double contrast;
   final bool isMeasurementMode;
   final bool isAnnotationMode;
+  final MeasurementType? measurementType;
+  final AnnotationToolType? annotationType;
+  final Color measurementColor;
+  final Color annotationColor;
+  final VoidCallback? onMeasurementComplete;
+  final Function(String)? onTextAnnotationRequested;
 
   const DicomImageViewer({
     super.key,
@@ -18,35 +26,63 @@ class DicomImageViewer extends StatefulWidget {
     this.contrast = 1.0,
     this.isMeasurementMode = false,
     this.isAnnotationMode = false,
+    this.measurementType,
+    this.annotationType,
+    this.measurementColor = Colors.yellow,
+    this.annotationColor = Colors.green,
+    this.onMeasurementComplete,
+    this.onTextAnnotationRequested,
   });
 
   @override
   State<DicomImageViewer> createState() => _DicomImageViewerState();
 }
 
-class _DicomImageViewerState extends State<DicomImageViewer> {
+class _DicomImageViewerState extends State<DicomImageViewer>
+    with SingleTickerProviderStateMixin {
   // 확대/축소 및 패닝을 위한 변환 매트릭스
   final TransformationController _transformationController =
       TransformationController();
 
-  // 측정 도구 관련 변수
-  List<Offset> _measurementPoints = [];
-
-  // 주석 관련 변수
-  final List<Map<String, dynamic>> _annotations = [];
-
   // 이미지 처리 서비스
   final DicomService _dicomService = DicomService();
+
+  // 측정 및 주석 관리자
+  late MeasurementManager _measurementManager;
+  late AnnotationManager _annotationManager;
 
   // 이미지 캐시
   Uint8List? _processedImage;
   double _lastBrightness = 0.0;
   double _lastContrast = 1.0;
 
+  // 애니메이션 컨트롤러 (더블 탭 줌)
+  late AnimationController _animationController;
+  Animation<Matrix4>? _animation;
+
+  // 현재 변환 매트릭스 저장 (애니메이션용)
+  Matrix4? _homeMatrix;
+
   @override
   void initState() {
     super.initState();
     _processImage();
+
+    // 측정 및 주석 관리자 초기화
+    _measurementManager = MeasurementManager();
+    _annotationManager = AnnotationManager();
+
+    // 애니메이션 컨트롤러 초기화
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+
+    _animationController.addListener(() {
+      if (_animation != null) {
+        _transformationController.value = _animation!.value;
+      }
+    });
   }
 
   @override
@@ -59,11 +95,44 @@ class _DicomImageViewerState extends State<DicomImageViewer> {
         oldWidget.dicomImage != widget.dicomImage) {
       _processImage();
     }
+
+    // 측정 모드 변경
+    if (oldWidget.isMeasurementMode != widget.isMeasurementMode) {
+      _measurementManager.setActive(widget.isMeasurementMode);
+    }
+
+    // 주석 모드 변경
+    if (oldWidget.isAnnotationMode != widget.isAnnotationMode) {
+      _annotationManager.setActive(widget.isAnnotationMode);
+    }
+
+    // 측정 도구 타입 변경
+    if (widget.measurementType != null &&
+        oldWidget.measurementType != widget.measurementType) {
+      _measurementManager.setMeasurementType(widget.measurementType!);
+    }
+
+    // 주석 도구 타입 변경
+    if (widget.annotationType != null &&
+        oldWidget.annotationType != widget.annotationType) {
+      _annotationManager.setAnnotationType(widget.annotationType!);
+    }
+
+    // 측정 색상 변경
+    if (oldWidget.measurementColor != widget.measurementColor) {
+      _measurementManager.setMeasurementColor(widget.measurementColor);
+    }
+
+    // 주석 색상 변경
+    if (oldWidget.annotationColor != widget.annotationColor) {
+      _annotationManager.setAnnotationColor(widget.annotationColor);
+    }
   }
 
   @override
   void dispose() {
     _transformationController.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -97,93 +166,149 @@ class _DicomImageViewerState extends State<DicomImageViewer> {
     }
   }
 
-  // 측정점 추가
-  void _addMeasurementPoint(Offset point) {
-    if (widget.isMeasurementMode) {
-      setState(() {
-        if (_measurementPoints.length < 2) {
-          _measurementPoints.add(point);
-        } else {
-          _measurementPoints = [point];
-        }
-      });
+  // 측정 시작 또는 포인트 추가
+  void _handleMeasurementPoint(Offset localPosition) {
+    if (!widget.isMeasurementMode) return;
+
+    // 측정 포인트 추가
+    _measurementManager.addPoint(localPosition);
+
+    // 화면 갱신
+    setState(() {});
+
+    // 측정이 완료되면 콜백 호출
+    if (_measurementManager.isCompleted &&
+        widget.onMeasurementComplete != null) {
+      widget.onMeasurementComplete!();
     }
   }
 
-  // 주석 추가
-  void _addAnnotation(Offset point) {
-    if (widget.isAnnotationMode) {
-      // 텍스트 컨트롤러 생성 (다이얼로그 내에서 사용)
-      final textController = TextEditingController();
+  // 주석 시작
+  void _handleAnnotationStart(Offset localPosition) {
+    if (!widget.isAnnotationMode) return;
 
-      // 주석 텍스트 입력 다이얼로그 표시
-      showDialog(
-        context: context,
-        builder:
-            (dialogContext) => AlertDialog(
-              title: const Text('주석 추가'),
-              content: TextField(
-                controller: textController, // 컨트롤러 할당
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: '주석 내용을 입력하세요',
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (value) {
-                  if (value.isNotEmpty) {
-                    setState(() {
-                      _annotations.add({'position': point, 'text': value});
-                    });
-                    Navigator.of(dialogContext).pop();
-                  }
-                },
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('취소'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    // 텍스트필드 값 가져오기
-                    final text = textController.text;
+    // 주석 시작
+    _annotationManager.startAnnotation(localPosition);
 
-                    if (text.isNotEmpty) {
-                      setState(() {
-                        _annotations.add({'position': point, 'text': text});
-                      });
-                    }
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('추가'),
-                ),
-              ],
-            ),
-      );
+    // 텍스트 주석인 경우 텍스트 입력 요청
+    if (widget.annotationType == AnnotationToolType.text &&
+        widget.onTextAnnotationRequested != null) {
+      widget.onTextAnnotationRequested!('');
+      return;
+    }
+
+    // 화면 갱신
+    setState(() {});
+  }
+
+  // 주석 업데이트 (드래그 중)
+  void _handleAnnotationUpdate(Offset localPosition) {
+    if (!widget.isAnnotationMode ||
+        _annotationManager.currentAnnotation == null)
+      return;
+
+    // 주석 업데이트
+    _annotationManager.updateAnnotation(localPosition);
+
+    // 화면 갱신
+    setState(() {});
+  }
+
+  // 주석 완료
+  void _handleAnnotationComplete(Offset localPosition) {
+    if (!widget.isAnnotationMode ||
+        _annotationManager.currentAnnotation == null)
+      return;
+
+    // 주석 완료
+    _annotationManager.completeAnnotation(localPosition);
+
+    // 화면 갱신
+    setState(() {});
+  }
+
+  // 더블 탭 줌 처리
+  void _handleDoubleTap(TapDownDetails details) {
+    // 현재 줌 레벨 확인
+    final double scale = _transformationController.value.getMaxScaleOnAxis();
+
+    final Offset position = details.localPosition;
+
+    if (scale >= 2.0) {
+      // 줌 아웃 (원래 크기로)
+      _animateResetTransformation();
+    } else {
+      // 줌 인 (탭한 위치로 2배 확대)
+      _animateToPosition(position, 2.0);
     }
   }
 
-  // 거리 계산
-  double _calculateDistance() {
-    if (_measurementPoints.length != 2) return 0;
+  // 원래 크기로 애니메이션
+  void _animateResetTransformation() {
+    _homeMatrix ??= Matrix4.identity();
 
-    final p1 = _measurementPoints[0];
-    final p2 = _measurementPoints[1];
+    _animation = Matrix4Tween(
+      begin: _transformationController.value,
+      end: _homeMatrix,
+    ).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
 
-    return (p1 - p2).distance;
+    _animationController.forward(from: 0);
+  }
+
+  // 특정 위치로 애니메이션
+  void _animateToPosition(Offset position, double targetScale) {
+    // 원본 변환 매트릭스 저장
+    _homeMatrix ??= Matrix4.identity();
+
+    // 타겟 매트릭스 계산
+    final Matrix4 targetMatrix =
+        Matrix4.identity()
+          ..translate(
+            -position.dx * (targetScale - 1),
+            -position.dy * (targetScale - 1),
+          )
+          ..scale(targetScale);
+
+    _animation = Matrix4Tween(
+      begin: _transformationController.value,
+      end: targetMatrix,
+    ).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+
+    _animationController.forward(from: 0);
   }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapUp: (details) {
-        final renderBox = context.findRenderObject() as RenderBox;
-        final localPosition = renderBox.globalToLocal(details.globalPosition);
-
+      onTapDown: (details) {
         if (widget.isMeasurementMode) {
-          _addMeasurementPoint(localPosition);
+          _handleMeasurementPoint(details.localPosition);
         } else if (widget.isAnnotationMode) {
-          _addAnnotation(localPosition);
+          _handleAnnotationStart(details.localPosition);
+        }
+      },
+      onDoubleTapDown: _handleDoubleTap,
+      onPanStart: (details) {
+        if (widget.isAnnotationMode) {
+          _handleAnnotationStart(details.localPosition);
+        }
+      },
+      onPanUpdate: (details) {
+        if (widget.isAnnotationMode) {
+          _handleAnnotationUpdate(details.localPosition);
+        }
+      },
+      onPanEnd: (details) {
+        if (widget.isAnnotationMode &&
+            _annotationManager.currentAnnotation != null) {
+          // 최종 포인트는 없으므로 null 전달
+          _handleAnnotationComplete(
+            _annotationManager.currentAnnotation!['position'],
+          );
         }
       },
       child: Stack(
@@ -224,17 +349,15 @@ class _DicomImageViewerState extends State<DicomImageViewer> {
           if (widget.isMeasurementMode)
             CustomPaint(
               size: Size.infinite,
-              painter: MeasurementPainter(
-                points: _measurementPoints,
-                distance: _calculateDistance(),
-              ),
+              painter: _measurementManager.createPainter(),
             ),
 
           // 주석 오버레이
-          if (widget.isAnnotationMode || _annotations.isNotEmpty)
+          if (widget.isAnnotationMode ||
+              _annotationManager.annotations.isNotEmpty)
             CustomPaint(
               size: Size.infinite,
-              painter: AnnotationPainter(annotations: _annotations),
+              painter: _annotationManager.createPainter(),
             ),
 
           // 이미지 정보 오버레이

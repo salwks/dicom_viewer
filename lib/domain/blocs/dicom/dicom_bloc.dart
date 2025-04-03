@@ -1,6 +1,9 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../data/services/dicom_service.dart';
 import '../../../data/services/local_storage_service.dart';
+import '../../../presentation/widgets/dicom_viewer/painters.dart';
+import '../../../presentation/widgets/annotation_tools/annotation_manager.dart';
 import 'dicom_event.dart';
 import 'dicom_state.dart';
 
@@ -20,12 +23,31 @@ class DicomBloc extends Bloc<DicomEvent, DicomState> {
     on<UpdateContrast>(_onUpdateContrast);
     on<UpdateImageIndex>(_onUpdateImageIndex);
     on<SaveDicomSettings>(_onSaveDicomSettings);
+
+    // 측정 도구 이벤트
     on<ToggleMeasurementMode>(_onToggleMeasurementMode);
-    on<ToggleAnnotationMode>(_onToggleAnnotationMode);
+    on<SelectMeasurementTool>(_onSelectMeasurementTool);
+    on<UpdateMeasurementColor>(_onUpdateMeasurementColor);
     on<AddMeasurementPoint>(_onAddMeasurementPoint);
     on<ClearMeasurements>(_onClearMeasurements);
+
+    // 주석 도구 이벤트
+    on<ToggleAnnotationMode>(_onToggleAnnotationMode);
+    on<SelectAnnotationTool>(_onSelectAnnotationTool);
+    on<UpdateAnnotationColor>(_onUpdateAnnotationColor);
     on<AddAnnotation>(_onAddAnnotation);
+    on<CompleteAnnotation>(_onCompleteAnnotation);
+    on<CancelAnnotation>(_onCancelAnnotation);
     on<ClearAnnotations>(_onClearAnnotations);
+
+    // 이미지 변환 이벤트
+    on<RotateImage>(_onRotateImage);
+    on<FlipImage>(_onFlipImage);
+
+    // 저장 및 내보내기 이벤트
+    on<SaveMeasurements>(_onSaveMeasurements);
+    on<SaveAnnotations>(_onSaveAnnotations);
+    on<ExportImage>(_onExportImage);
   }
 
   Future<void> _onLoadDicomFile(
@@ -54,6 +76,12 @@ class DicomBloc extends Bloc<DicomEvent, DicomState> {
           contrast: defaultContrast,
           currentImageIndex: 0,
           errorMessage: null,
+          // 측정 및 주석 초기화
+          measurements: const [],
+          annotations: const [],
+          rotation: 0,
+          flipHorizontal: false,
+          flipVertical: false,
         ),
       );
     } catch (e) {
@@ -110,6 +138,38 @@ class DicomBloc extends Bloc<DicomEvent, DicomState> {
     );
   }
 
+  void _onSelectMeasurementTool(
+    SelectMeasurementTool event,
+    Emitter<DicomState> emit,
+  ) {
+    emit(
+      state.copyWith(
+        measurementType: event.type,
+        isMeasurementMode: true,
+        isAnnotationMode: false,
+      ),
+    );
+  }
+
+  void _onUpdateMeasurementColor(
+    UpdateMeasurementColor event,
+    Emitter<DicomState> emit,
+  ) {
+    emit(state.copyWith(measurementColor: event.color));
+  }
+
+  void _onAddMeasurementPoint(
+    AddMeasurementPoint event,
+    Emitter<DicomState> emit,
+  ) {
+    // 현재 구현에서는 측정 포인트가 별도 객체로 관리됨
+    // 여기서는 측정이 완료된 결과만 저장
+  }
+
+  void _onClearMeasurements(ClearMeasurements event, Emitter<DicomState> emit) {
+    emit(state.copyWith(measurements: const []));
+  }
+
   void _onToggleAnnotationMode(
     ToggleAnnotationMode event,
     Emitter<DicomState> emit,
@@ -124,26 +184,24 @@ class DicomBloc extends Bloc<DicomEvent, DicomState> {
     );
   }
 
-  void _onAddMeasurementPoint(
-    AddMeasurementPoint event,
+  void _onSelectAnnotationTool(
+    SelectAnnotationTool event,
     Emitter<DicomState> emit,
   ) {
-    final currentPoints = List<Map<String, double>>.from(
-      state.measurementPoints,
+    emit(
+      state.copyWith(
+        annotationType: event.type,
+        isAnnotationMode: true,
+        isMeasurementMode: false,
+      ),
     );
-
-    if (currentPoints.length < 2) {
-      currentPoints.add({'x': event.x, 'y': event.y});
-    } else {
-      currentPoints.clear();
-      currentPoints.add({'x': event.x, 'y': event.y});
-    }
-
-    emit(state.copyWith(measurementPoints: currentPoints));
   }
 
-  void _onClearMeasurements(ClearMeasurements event, Emitter<DicomState> emit) {
-    emit(state.copyWith(measurementPoints: []));
+  void _onUpdateAnnotationColor(
+    UpdateAnnotationColor event,
+    Emitter<DicomState> emit,
+  ) {
+    emit(state.copyWith(annotationColor: event.color));
   }
 
   void _onAddAnnotation(AddAnnotation event, Emitter<DicomState> emit) {
@@ -151,12 +209,85 @@ class DicomBloc extends Bloc<DicomEvent, DicomState> {
       state.annotations,
     );
 
-    currentAnnotations.add({'x': event.x, 'y': event.y, 'text': event.text});
+    // 주석 타입에 따라 다른 형태로 추가
+    Map<String, dynamic> newAnnotation = {
+      'position': Offset(event.x, event.y),
+      'text': event.text,
+      'type': event.type ?? 'text',
+      'color': state.annotationColor,
+    };
+
+    currentAnnotations.add(newAnnotation);
 
     emit(state.copyWith(annotations: currentAnnotations));
   }
 
+  void _onCompleteAnnotation(
+    CompleteAnnotation event,
+    Emitter<DicomState> emit,
+  ) {
+    // 주석 완료 처리는 _onAddAnnotation에서 이미 처리됨
+  }
+
+  void _onCancelAnnotation(CancelAnnotation event, Emitter<DicomState> emit) {
+    // 현재 주석 작업 취소
+  }
+
   void _onClearAnnotations(ClearAnnotations event, Emitter<DicomState> emit) {
-    emit(state.copyWith(annotations: []));
+    emit(state.copyWith(annotations: const []));
+  }
+
+  void _onRotateImage(RotateImage event, Emitter<DicomState> emit) {
+    // 현재 회전 각도
+    final currentRotation = state.rotation;
+
+    // 새 회전 각도 (0, 90, 180, 270 중 하나)
+    final newRotation = (currentRotation + event.degrees) % 360;
+
+    emit(state.copyWith(rotation: newRotation));
+  }
+
+  void _onFlipImage(FlipImage event, Emitter<DicomState> emit) {
+    if (event.horizontal) {
+      emit(state.copyWith(flipHorizontal: !state.flipHorizontal));
+    } else {
+      emit(state.copyWith(flipVertical: !state.flipVertical));
+    }
+  }
+
+  Future<void> _onSaveMeasurements(
+    SaveMeasurements event,
+    Emitter<DicomState> emit,
+  ) async {
+    // TODO: 측정 결과 저장 로직 구현
+    try {
+      // 측정 데이터를 영구 저장소에 저장하는 로직 추가
+    } catch (e) {
+      print('측정 저장 중 오류: $e');
+    }
+  }
+
+  Future<void> _onSaveAnnotations(
+    SaveAnnotations event,
+    Emitter<DicomState> emit,
+  ) async {
+    // TODO: 주석 저장 로직 구현
+    try {
+      // 주석 데이터를 영구 저장소에 저장하는 로직 추가
+    } catch (e) {
+      print('주석 저장 중 오류: $e');
+    }
+  }
+
+  Future<void> _onExportImage(
+    ExportImage event,
+    Emitter<DicomState> emit,
+  ) async {
+    // TODO: 현재 이미지 내보내기 로직 구현
+    try {
+      // 현재 이미지를 파일로 내보내는 로직 추가
+    } catch (e) {
+      print('이미지 내보내기 중 오류: $e');
+    }
   }
 }

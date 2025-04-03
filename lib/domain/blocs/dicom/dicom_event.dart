@@ -1,4 +1,7 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/material.dart';
+import '../../../presentation/widgets/dicom_viewer/painters.dart';
+import '../../../presentation/widgets/annotation_tools/annotation_manager.dart';
 
 abstract class DicomEvent extends Equatable {
   const DicomEvent();
@@ -57,6 +60,42 @@ class ToggleMeasurementMode extends DicomEvent {}
 
 class ToggleAnnotationMode extends DicomEvent {}
 
+class SelectMeasurementTool extends DicomEvent {
+  final MeasurementType type;
+
+  const SelectMeasurementTool(this.type);
+
+  @override
+  List<Object?> get props => [type];
+}
+
+class SelectAnnotationTool extends DicomEvent {
+  final AnnotationToolType type;
+
+  const SelectAnnotationTool(this.type);
+
+  @override
+  List<Object?> get props => [type];
+}
+
+class UpdateMeasurementColor extends DicomEvent {
+  final Color color;
+
+  const UpdateMeasurementColor(this.color);
+
+  @override
+  List<Object?> get props => [color];
+}
+
+class UpdateAnnotationColor extends DicomEvent {
+  final Color color;
+
+  const UpdateAnnotationColor(this.color);
+
+  @override
+  List<Object?> get props => [color];
+}
+
 class AddMeasurementPoint extends DicomEvent {
   final double x;
   final double y;
@@ -73,11 +112,47 @@ class AddAnnotation extends DicomEvent {
   final double x;
   final double y;
   final String text;
+  final String? type;
 
-  const AddAnnotation(this.x, this.y, this.text);
+  const AddAnnotation(this.x, this.y, this.text, {this.type});
 
   @override
-  List<Object?> get props => [x, y, text];
+  List<Object?> get props => [x, y, text, type];
 }
 
+class CompleteAnnotation extends DicomEvent {
+  final String text;
+
+  const CompleteAnnotation(this.text);
+
+  @override
+  List<Object?> get props => [text];
+}
+
+class CancelAnnotation extends DicomEvent {}
+
 class ClearAnnotations extends DicomEvent {}
+
+class RotateImage extends DicomEvent {
+  final int degrees; // 90, 180, 270
+
+  const RotateImage(this.degrees);
+
+  @override
+  List<Object?> get props => [degrees];
+}
+
+class FlipImage extends DicomEvent {
+  final bool horizontal;
+
+  const FlipImage({this.horizontal = true});
+
+  @override
+  List<Object?> get props => [horizontal];
+}
+
+class SaveMeasurements extends DicomEvent {}
+
+class SaveAnnotations extends DicomEvent {}
+
+class ExportImage extends DicomEvent {}
