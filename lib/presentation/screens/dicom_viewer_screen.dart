@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../data/models/dicom_file.dart';
+import '../../data/services/dicom_service.dart';
+import '../../data/services/local_storage_service.dart';
 import '../widgets/dicom_viewer/dicom_image_viewer.dart';
 import '../widgets/dicom_viewer/image_controls.dart';
 import '../widgets/measurement_tools/measurement_tools_panel.dart';
 import '../widgets/annotation_tools/annotation_tools_panel.dart';
 import 'dicom_tags_screen.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class DicomViewerScreen extends StatefulWidget {
   final String filePath;
@@ -28,6 +31,10 @@ class _DicomViewerScreenState extends State<DicomViewerScreen>
   // 도구 상태
   bool _isMeasurementMode = false;
   bool _isAnnotationMode = false;
+
+  // 서비스 인스턴스
+  final DicomService _dicomService = DicomService();
+  final LocalStorageService _localStorageService = LocalStorageService();
 
   // 탭 컨트롤러
   late TabController _tabController;
@@ -53,69 +60,32 @@ class _DicomViewerScreenState extends State<DicomViewerScreen>
         _errorMessage = null;
       });
 
-      // TODO: 실제 DICOM 파싱 로직 구현
-      // 아래는 더미 데이터로 구현
-      await Future.delayed(const Duration(seconds: 2)); // 로딩 시뮬레이션
+      // 설정 로드
+      final settings = await _localStorageService.loadSettings();
+      final defaultBrightness = settings['defaultBrightness'] as double;
+      final defaultContrast = settings['defaultContrast'] as double;
 
-      // 여기에 실제 DICOM 파싱 로직이 들어갈 예정
-      // 현재는 샘플 데이터로 대체
-      final dummyImages = List.generate(
-        3,
-        (index) => DicomImage(
-          index: index,
-          pixelData: null, // 실제 구현에서는 픽셀 데이터 필요
-          width: 512,
-          height: 512,
-          bitsAllocated: 16,
-          bitsStored: 12,
-          highBit: 11,
-          samplesPerPixel: 1,
-          isColor: false,
-          photometricInterpretation: 'MONOCHROME2',
-          windowCenter: 40,
-          windowWidth: 400,
-        ),
-      );
+      // DICOM 파일 파싱 (더미 구현 사용)
+      final dicomFile = await _dicomService.loadDicomFile(widget.filePath);
 
-      final dummyTags = {
-        '00100010': DicomTag(
-          name: 'PatientName',
-          group: '0010',
-          element: '0010',
-          vr: 'PN',
-          value: '홍길동',
-        ),
-        '00100020': DicomTag(
-          name: 'PatientID',
-          group: '0010',
-          element: '0020',
-          vr: 'LO',
-          value: '12345678',
-        ),
-        // 추가 태그...
-      };
+      // 최근 파일 목록에 추가
+      await _localStorageService.saveRecentFile(dicomFile);
 
-      _dicomFile = DicomFile(
-        filePath: widget.filePath,
-        patientName: '홍길동',
-        patientId: '12345678',
-        studyDate: '20230101',
-        studyDescription: 'CT BRAIN',
-        seriesDescription: 'AXIAL',
-        modality: 'CT',
-        images: dummyImages,
-        tags: dummyTags,
-        dateAdded: DateTime.now(),
-      );
-
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _dicomFile = dicomFile;
+          _isLoading = false;
+          _brightness = defaultBrightness;
+          _contrast = defaultContrast;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = e.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString();
+        });
+      }
     }
   }
 
@@ -154,6 +124,37 @@ class _DicomViewerScreenState extends State<DicomViewerScreen>
         _isMeasurementMode = false;
       }
     });
+  }
+
+  // 이미지 회전 처리
+  void _rotateImage() {
+    // TODO: 추후 구현
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('이미지 회전 기능은 아직 구현되지 않았습니다')));
+  }
+
+  // 이미지 반전 처리
+  void _flipImage() {
+    // TODO: 추후 구현
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('이미지 반전 기능은 아직 구현되지 않았습니다')));
+  }
+
+  // 현재 상태 저장
+  void _saveCurrentState() {
+    // 기본 밝기/대비 설정 저장
+    _localStorageService
+        .saveSettings(
+          defaultBrightness: _brightness,
+          defaultContrast: _contrast,
+        )
+        .then((_) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('현재 설정이 저장되었습니다')));
+        });
   }
 
   // DICOM 태그 화면으로 이동
@@ -208,6 +209,11 @@ class _DicomViewerScreenState extends State<DicomViewerScreen>
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _loadDicomFile,
+              child: const Text('다시 시도'),
+            ),
           ],
         ),
       );
@@ -245,14 +251,20 @@ class _DicomViewerScreenState extends State<DicomViewerScreen>
         if (_isMeasurementMode)
           MeasurementToolsPanel(
             onToolSelected: (tool) {
-              // TODO: 측정 도구 선택 처리
+              // 테스트용 메시지 표시
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${tool.name} 측정 도구가 선택되었습니다')),
+              );
             },
           ),
 
         if (_isAnnotationMode)
           AnnotationToolsPanel(
             onToolSelected: (tool) {
-              // TODO: 주석 도구 선택 처리
+              // 테스트용 메시지 표시
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('${tool.name} 주석 도구가 선택되었습니다')),
+              );
             },
           ),
       ],
@@ -282,24 +294,18 @@ class _DicomViewerScreenState extends State<DicomViewerScreen>
           ),
           IconButton(
             icon: const Icon(Icons.rotate_90_degrees_ccw),
-            onPressed: () {
-              // TODO: 이미지 회전 처리
-            },
+            onPressed: _rotateImage,
             tooltip: '이미지 회전',
           ),
           IconButton(
             icon: const Icon(Icons.flip),
-            onPressed: () {
-              // TODO: 이미지 반전 처리
-            },
+            onPressed: _flipImage,
             tooltip: '이미지 반전',
           ),
           IconButton(
             icon: const Icon(Icons.save),
-            onPressed: () {
-              // TODO: 현재 상태 저장 처리
-            },
-            tooltip: '저장',
+            onPressed: _saveCurrentState,
+            tooltip: '설정 저장',
           ),
         ],
       ),

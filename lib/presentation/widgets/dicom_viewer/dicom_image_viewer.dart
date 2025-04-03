@@ -1,5 +1,8 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../../data/models/dicom_file.dart';
+import '../../../data/services/dicom_service.dart';
+import 'painters.dart';
 
 class DicomImageViewer extends StatefulWidget {
   final DicomImage dicomImage;
@@ -32,10 +35,66 @@ class _DicomImageViewerState extends State<DicomImageViewer> {
   // 주석 관련 변수
   final List<Map<String, dynamic>> _annotations = [];
 
+  // 이미지 처리 서비스
+  final DicomService _dicomService = DicomService();
+
+  // 이미지 캐시
+  Uint8List? _processedImage;
+  double _lastBrightness = 0.0;
+  double _lastContrast = 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _processImage();
+  }
+
+  @override
+  void didUpdateWidget(DicomImageViewer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // 밝기나 대비가 변경되면 이미지 다시 처리
+    if (oldWidget.brightness != widget.brightness ||
+        oldWidget.contrast != widget.contrast ||
+        oldWidget.dicomImage != widget.dicomImage) {
+      _processImage();
+    }
+  }
+
   @override
   void dispose() {
     _transformationController.dispose();
     super.dispose();
+  }
+
+  // 이미지 처리 메서드
+  Future<void> _processImage() async {
+    if (widget.dicomImage.pixelData == null) return;
+
+    try {
+      // 캐싱: 동일한 밝기/대비 설정이면 재처리하지 않음
+      if (_processedImage != null &&
+          _lastBrightness == widget.brightness &&
+          _lastContrast == widget.contrast) {
+        return;
+      }
+
+      final processedImage = await _dicomService.convertPixelDataToImage(
+        widget.dicomImage,
+        brightness: widget.brightness,
+        contrast: widget.contrast,
+      );
+
+      if (mounted) {
+        setState(() {
+          _processedImage = processedImage;
+          _lastBrightness = widget.brightness;
+          _lastContrast = widget.contrast;
+        });
+      }
+    } catch (e) {
+      print('이미지 처리 오류: $e');
+    }
   }
 
   // 측정점 추가
@@ -54,13 +113,53 @@ class _DicomImageViewerState extends State<DicomImageViewer> {
   // 주석 추가
   void _addAnnotation(Offset point) {
     if (widget.isAnnotationMode) {
-      // TODO: 주석 입력 다이얼로그 구현
-      setState(() {
-        _annotations.add({
-          'position': point,
-          'text': '주석 ${_annotations.length + 1}',
-        });
-      });
+      // 텍스트 컨트롤러 생성 (다이얼로그 내에서 사용)
+      final textController = TextEditingController();
+
+      // 주석 텍스트 입력 다이얼로그 표시
+      showDialog(
+        context: context,
+        builder:
+            (dialogContext) => AlertDialog(
+              title: const Text('주석 추가'),
+              content: TextField(
+                controller: textController, // 컨트롤러 할당
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '주석 내용을 입력하세요',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (value) {
+                  if (value.isNotEmpty) {
+                    setState(() {
+                      _annotations.add({'position': point, 'text': value});
+                    });
+                    Navigator.of(dialogContext).pop();
+                  }
+                },
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('취소'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    // 텍스트필드 값 가져오기
+                    final text = textController.text;
+
+                    if (text.isNotEmpty) {
+                      setState(() {
+                        _annotations.add({'position': point, 'text': text});
+                      });
+                    }
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: const Text('추가'),
+                ),
+              ],
+            ),
+      );
     }
   }
 
@@ -76,8 +175,6 @@ class _DicomImageViewerState extends State<DicomImageViewer> {
 
   @override
   Widget build(BuildContext context) {
-    // 현재는 더미 이미지를 표시합니다.
-    // 실제 구현에서는 DICOM 픽셀 데이터를 처리하여 표시해야 합니다.
     return GestureDetector(
       onTapUp: (details) {
         final renderBox = context.findRenderObject() as RenderBox;
@@ -98,41 +195,28 @@ class _DicomImageViewerState extends State<DicomImageViewer> {
             minScale: 0.5,
             maxScale: 4.0,
             child: Center(
-              child: ColorFiltered(
-                colorFilter: ColorFilter.matrix([
-                  widget.contrast,
-                  0,
-                  0,
-                  0,
-                  widget.brightness * 255,
-                  0,
-                  widget.contrast,
-                  0,
-                  0,
-                  widget.brightness * 255,
-                  0,
-                  0,
-                  widget.contrast,
-                  0,
-                  widget.brightness * 255,
-                  0,
-                  0,
-                  0,
-                  1,
-                  0,
-                ]),
-                child: Container(
-                  width: widget.dicomImage.width.toDouble(),
-                  height: widget.dicomImage.height.toDouble(),
-                  color: Colors.black,
-                  child: const Center(
-                    child: Text(
-                      'DICOM 이미지 표시 영역',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ),
-              ),
+              child:
+                  widget.dicomImage.pixelData != null
+                      ? _processedImage != null
+                          ? Image.memory(
+                            _processedImage!,
+                            width: widget.dicomImage.width.toDouble(),
+                            height: widget.dicomImage.height.toDouble(),
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true, // 이미지 전환 시 깜빡임 방지
+                          )
+                          : const Center(child: CircularProgressIndicator())
+                      : Container(
+                        width: widget.dicomImage.width.toDouble(),
+                        height: widget.dicomImage.height.toDouble(),
+                        color: Colors.black,
+                        child: const Center(
+                          child: Text(
+                            'DICOM 이미지 데이터 없음',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
             ),
           ),
 
@@ -147,7 +231,7 @@ class _DicomImageViewerState extends State<DicomImageViewer> {
             ),
 
           // 주석 오버레이
-          if (widget.isAnnotationMode)
+          if (widget.isAnnotationMode || _annotations.isNotEmpty)
             CustomPaint(
               size: Size.infinite,
               painter: AnnotationPainter(annotations: _annotations),
@@ -182,105 +266,4 @@ class _DicomImageViewerState extends State<DicomImageViewer> {
       ),
     );
   }
-}
-
-// 측정 도구 페인터
-class MeasurementPainter extends CustomPainter {
-  final List<Offset> points;
-  final double distance;
-
-  MeasurementPainter({required this.points, required this.distance});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint =
-        Paint()
-          ..color = Colors.yellow
-          ..strokeWidth = 2
-          ..style = PaintingStyle.stroke;
-
-    final textPaint = TextPainter(
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-    );
-
-    // 점 그리기
-    for (var point in points) {
-      canvas.drawCircle(point, 5, paint);
-    }
-
-    // 선 그리기
-    if (points.length == 2) {
-      canvas.drawLine(points[0], points[1], paint);
-
-      // 거리 표시
-      final midPoint = Offset(
-        (points[0].dx + points[1].dx) / 2,
-        (points[0].dy + points[1].dy) / 2,
-      );
-
-      textPaint.text = TextSpan(
-        text: '${distance.toStringAsFixed(1)} px',
-        style: const TextStyle(
-          color: Colors.yellow,
-          fontSize: 14,
-          backgroundColor: Colors.black54,
-        ),
-      );
-
-      textPaint.layout();
-      textPaint.paint(
-        canvas,
-        midPoint - Offset(textPaint.width / 2, textPaint.height / 2),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
-}
-
-// 주석 페인터
-class AnnotationPainter extends CustomPainter {
-  final List<Map<String, dynamic>> annotations;
-
-  AnnotationPainter({required this.annotations});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint =
-        Paint()
-          ..color = Colors.green
-          ..strokeWidth = 2
-          ..style = PaintingStyle.stroke;
-
-    final textPaint = TextPainter(
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.left,
-    );
-
-    for (var annotation in annotations) {
-      final point = annotation['position'] as Offset;
-      final text = annotation['text'] as String;
-
-      // 주석 마커 그리기
-      canvas.drawCircle(point, 5, paint);
-
-      // 주석 텍스트 그리기
-      textPaint.text = TextSpan(
-        text: text,
-        style: const TextStyle(
-          color: Colors.green,
-          fontSize: 14,
-          backgroundColor: Colors.black54,
-        ),
-      );
-
-      textPaint.layout();
-      textPaint.paint(canvas, point + const Offset(10, -10));
-    }
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
 }

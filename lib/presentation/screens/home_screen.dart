@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:dicom_viewer/data/services/dicom_service.dart';
 import 'dicom_viewer_screen.dart';
 import 'recent_files_screen.dart';
 import 'settings_screen.dart';
@@ -10,20 +12,66 @@ class HomeScreen extends StatelessWidget {
   // DICOM 파일 선택
   Future<void> _pickDicomFile(BuildContext context) async {
     try {
+      // 저장소 권한 확인
+      final storageStatus = await Permission.storage.request();
+      if (!storageStatus.isGranted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('파일 접근을 위해 저장소 권한이 필요합니다')),
+        );
+        return;
+      }
+
+      // 파일 선택 다이얼로그 표시
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['dcm', 'dicom'],
+        allowedExtensions: ['dcm', 'dicom', 'DCM', 'DICOM'],
+        allowMultiple: false,
       );
 
       if (result != null && result.files.isNotEmpty) {
         String filePath = result.files.first.path!;
-        // 여기서는 실제 DICOM 파싱 없이 뷰어 화면으로 이동
-        // 실제 구현에서는 DICOM 파싱 로직 추가 필요
-        _navigateToDicomViewer(context, filePath);
+
+        // 로딩 표시
+        _showLoadingDialog(context);
+
+        try {
+          // DICOM 파일 유효성 검증
+          final dicomService = DicomService();
+          await dicomService.loadDicomFile(filePath);
+
+          // 로딩 다이얼로그 닫기
+          Navigator.pop(context);
+
+          // DICOM 뷰어 화면으로 이동
+          _navigateToDicomViewer(context, filePath);
+        } catch (e) {
+          // 로딩 다이얼로그 닫기
+          Navigator.pop(context);
+          _showErrorDialog(context, '유효하지 않은 DICOM 파일', e.toString());
+        }
       }
     } catch (e) {
       _showErrorDialog(context, '파일 선택 오류', e.toString());
     }
+  }
+
+  // 로딩 다이얼로그 표시
+  void _showLoadingDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => const AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('DICOM 파일을 로드하는 중...'),
+              ],
+            ),
+          ),
+    );
   }
 
   // DICOM 뷰어 화면으로 이동
