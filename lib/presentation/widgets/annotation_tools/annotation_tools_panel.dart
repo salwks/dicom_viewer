@@ -1,8 +1,61 @@
 import 'package:flutter/material.dart';
 
-enum AnnotationTool { text, arrow, freehand, marker, rectangle }
+enum AnnotationTool { text, arrow, freehand, marker, rectangle, highlighter }
 
-class AnnotationToolsPanel extends StatelessWidget {
+extension AnnotationToolExtension on AnnotationTool {
+  String get name {
+    switch (this) {
+      case AnnotationTool.text:
+        return '텍스트';
+      case AnnotationTool.arrow:
+        return '화살표';
+      case AnnotationTool.freehand:
+        return '자유 곡선';
+      case AnnotationTool.marker:
+        return '마커';
+      case AnnotationTool.rectangle:
+        return '사각형';
+      case AnnotationTool.highlighter:
+        return '하이라이터';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case AnnotationTool.text:
+        return Icons.text_fields;
+      case AnnotationTool.arrow:
+        return Icons.arrow_forward;
+      case AnnotationTool.freehand:
+        return Icons.draw;
+      case AnnotationTool.marker:
+        return Icons.place;
+      case AnnotationTool.rectangle:
+        return Icons.crop_square;
+      case AnnotationTool.highlighter:
+        return Icons.format_color_fill;
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case AnnotationTool.text:
+        return '텍스트 주석을 추가합니다.';
+      case AnnotationTool.arrow:
+        return '화살표로 특정 위치를 가리킵니다.';
+      case AnnotationTool.freehand:
+        return '자유롭게 그려서 원하는 부분을 표시합니다.';
+      case AnnotationTool.marker:
+        return '특정 위치에 마커를 추가합니다.';
+      case AnnotationTool.rectangle:
+        return '사각형으로 영역을 표시합니다.';
+      case AnnotationTool.highlighter:
+        return '영역을 강조 표시합니다.';
+    }
+  }
+}
+
+class AnnotationToolsPanel extends StatefulWidget {
   final Function(AnnotationTool) onToolSelected;
   final AnnotationTool? selectedTool;
   final VoidCallback? onClearAnnotations;
@@ -17,27 +70,59 @@ class AnnotationToolsPanel extends StatelessWidget {
   });
 
   @override
+  State<AnnotationToolsPanel> createState() => _AnnotationToolsPanelState();
+}
+
+class _AnnotationToolsPanelState extends State<AnnotationToolsPanel> {
+  Color _selectedColor = Colors.green;
+
+  final List<Color> _availableColors = [
+    Colors.red,
+    Colors.green,
+    Colors.blue,
+    Colors.yellow,
+    Colors.orange,
+    Colors.purple,
+    Colors.cyan,
+    Colors.white,
+  ];
+
+  @override
   Widget build(BuildContext context) {
     return Container(
-      height: 80,
+      height: 90,
       color: Theme.of(context).cardColor,
       child: Column(
         children: [
-          Padding(
+          Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 16.0,
               vertical: 4.0,
             ),
+            alignment: Alignment.centerLeft,
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  '주석 도구',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                Text('주석 도구', style: Theme.of(context).textTheme.titleSmall),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        Icons.color_lens,
+                        color: _selectedColor,
+                        size: 20,
+                      ),
+                      onPressed: _showColorPicker,
+                      tooltip: '색상 선택',
+                    ),
+                    if (widget.onClearAnnotations != null)
+                      IconButton(
+                        icon: const Icon(Icons.delete_sweep, size: 20),
+                        onPressed: widget.onClearAnnotations,
+                        tooltip: '주석 지우기',
+                      ),
+                  ],
                 ),
-                const Spacer(),
-                _buildColorPicker(context),
-                const SizedBox(width: 16),
-                _buildClearButton(context),
               ],
             ),
           ),
@@ -46,36 +131,12 @@ class AnnotationToolsPanel extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               children: [
-                _buildToolButton(
-                  context,
-                  AnnotationTool.text,
-                  Icons.text_fields,
-                  '텍스트',
-                ),
-                _buildToolButton(
-                  context,
-                  AnnotationTool.arrow,
-                  Icons.arrow_forward,
-                  '화살표',
-                ),
-                _buildToolButton(
-                  context,
-                  AnnotationTool.freehand,
-                  Icons.draw,
-                  '자유 곡선',
-                ),
-                _buildToolButton(
-                  context,
-                  AnnotationTool.marker,
-                  Icons.place,
-                  '마커',
-                ),
-                _buildToolButton(
-                  context,
-                  AnnotationTool.rectangle,
-                  Icons.crop_square,
-                  '사각형',
-                ),
+                _buildToolButton(context, AnnotationTool.text),
+                _buildToolButton(context, AnnotationTool.arrow),
+                _buildToolButton(context, AnnotationTool.freehand),
+                _buildToolButton(context, AnnotationTool.marker),
+                _buildToolButton(context, AnnotationTool.rectangle),
+                _buildToolButton(context, AnnotationTool.highlighter),
               ],
             ),
           ),
@@ -84,22 +145,19 @@ class AnnotationToolsPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildToolButton(
-    BuildContext context,
-    AnnotationTool tool,
-    IconData icon,
-    String label,
-  ) {
-    final isSelected = selectedTool == tool;
+  Widget _buildToolButton(BuildContext context, AnnotationTool tool) {
+    final isSelected = widget.selectedTool == tool;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+    return Tooltip(
+      message: '${tool.name}\n${tool.description}',
+      preferBelow: false,
       child: InkWell(
-        onTap: () => onToolSelected(tool),
+        onTap: () => widget.onToolSelected(tool),
         borderRadius: BorderRadius.circular(8),
         child: Container(
-          width: 80,
-          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+          width: 74,
+          margin: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
           decoration:
               isSelected
                   ? BoxDecoration(
@@ -111,17 +169,19 @@ class AnnotationToolsPanel extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                icon,
+                tool.icon,
                 color: isSelected ? Theme.of(context).primaryColor : null,
               ),
               const SizedBox(height: 4),
               Text(
-                label,
+                tool.name,
                 style: TextStyle(
                   fontSize: 12,
                   color: isSelected ? Theme.of(context).primaryColor : null,
                 ),
                 textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -130,59 +190,113 @@ class AnnotationToolsPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildClearButton(BuildContext context) {
-    return IconButton(
-      icon: const Icon(Icons.delete_sweep),
-      tooltip: '주석 초기화',
-      onPressed: onClearAnnotations,
-    );
-  }
-
-  Widget _buildColorPicker(BuildContext context) {
-    final colors = [
-      Colors.green,
-      Colors.yellow,
-      Colors.red,
-      Colors.blue,
-      Colors.purple,
-      Colors.orange,
-    ];
-
-    return PopupMenuButton<Color>(
-      tooltip: '색상 선택',
-      icon: const Icon(Icons.color_lens),
-      itemBuilder: (context) {
-        return colors.map((color) {
-          return PopupMenuItem<Color>(
-            value: color,
-            child: Row(
-              children: [
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(_colorToName(color)),
-              ],
+  void _showColorPicker() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('주석 색상 선택'),
+            content: Container(
+              width: 300,
+              height: 100,
+              alignment: Alignment.center,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children:
+                    _availableColors.map((color) {
+                      return InkWell(
+                        onTap: () {
+                          setState(() => _selectedColor = color);
+                          if (widget.onColorChanged != null) {
+                            widget.onColorChanged!(color);
+                          }
+                          Navigator.pop(context);
+                        },
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: color,
+                            border: Border.all(
+                              color:
+                                  color == Colors.white ? Colors.black : color,
+                              width: 2,
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child:
+                              color == _selectedColor
+                                  ? const Icon(Icons.check, color: Colors.black)
+                                  : null,
+                        ),
+                      );
+                    }).toList(),
+              ),
             ),
-          );
-        }).toList();
-      },
-      onSelected: onColorChanged,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('취소'),
+              ),
+            ],
+          ),
     );
   }
+}
 
-  String _colorToName(Color color) {
-    if (color == Colors.green) return '초록';
-    if (color == Colors.yellow) return '노랑';
-    if (color == Colors.red) return '빨강';
-    if (color == Colors.blue) return '파랑';
-    if (color == Colors.purple) return '보라';
-    if (color == Colors.orange) return '주황';
-    return '기타';
+/// 텍스트 주석 입력을 위한 다이얼로그
+class AnnotationTextDialog extends StatelessWidget {
+  final TextEditingController textController;
+  final Function(String) onTextSubmitted;
+
+  const AnnotationTextDialog({
+    super.key,
+    required this.textController,
+    required this.onTextSubmitted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('텍스트 주석 추가'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: textController,
+            autofocus: true,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: '주석 내용을 입력하세요',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('취소'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            if (textController.text.isNotEmpty) {
+              onTextSubmitted(textController.text);
+            }
+            Navigator.pop(context);
+          },
+          child: const Text('추가'),
+        ),
+      ],
+    );
   }
 }
