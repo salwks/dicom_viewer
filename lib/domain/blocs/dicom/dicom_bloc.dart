@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../data/services/dicom_service.dart';
 import '../../../data/services/local_storage_service.dart';
-import '../../../presentation/widgets/dicom_viewer/painters.dart';
-import '../../../presentation/widgets/annotation_tools/annotation_manager.dart';
 import 'dicom_event.dart';
 import 'dicom_state.dart';
 
